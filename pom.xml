@@ -4,7 +4,7 @@
     <groupId>com.theoryinpractise</groupId>
     <artifactId>codeline-enforcer-rule</artifactId>
     <packaging>jar</packaging>
-    <version>1.0.1</version>
+    <version>1.0.2-SNAPSHOT</version>
     <name>Codeline Enforcer</name>
     <url>http://github.com/talios/codeline-enforcer-rule</url>
     <description>A maven enforcer rule to fail a build if code lines match regexs and import statements.</description>
