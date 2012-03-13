@@ -76,8 +76,6 @@
         </profile>
     </profiles>
 
-    <build>
-    </build>
     <dependencies>
         <dependency>
             <groupId>org.apache.maven.enforcer</groupId>
