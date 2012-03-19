@@ -2,6 +2,7 @@ package com.theoryinpractise.codelinefailure;
 
 import com.google.common.base.Function;
 import com.google.common.base.Predicate;
+import com.google.common.collect.ImmutableList;
 import japa.parser.JavaParser;
 import japa.parser.ast.CompilationUnit;
 import japa.parser.ast.ImportDeclaration;
@@ -28,6 +29,26 @@ public class CodelineFailureRule implements EnforcerRule {
     private List<String> classes = new ArrayList<String>();
 
     private Log log;
+
+    private Predicate<File> fileIsAcceptable = new Predicate<File>() {
+
+        List<Pattern> unacceptablePatterns = ImmutableList.of(
+                Pattern.compile("#.*"),
+                Pattern.compile(".*(\\.orig)$")
+        );
+
+        public boolean apply(@Nullable File file) {
+
+            String fileName = file.getName();
+            for (Pattern unacceptablePattern : unacceptablePatterns) {
+                if (unacceptablePattern.matcher(fileName).matches()) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    };
 
     public void execute(EnforcerRuleHelper helper) throws EnforcerRuleException {
         log = helper.getLog();
@@ -72,14 +93,14 @@ public class CodelineFailureRule implements EnforcerRule {
                     if (cu.getImports() != null) {
                         for (ImportDeclaration importDeclaration : cu.getImports()) {
                             if (classesPredicate.apply(importDeclaration.getName().toString())) {
-                                throw new EnforcerRuleException(file,
-                                        String.format("Illegal class import: %s at %s:%d:%d is bad!", importDeclaration.getName().toString(), file.getPath(), importDeclaration.getBeginLine(), importDeclaration.getBeginColumn()), "");
+                                throw new EnforcerRuleException(
+                                        String.format("%s: Illegal class import - %s at %s:%d:%d is bad!", file.getPath(), importDeclaration.getName().toString(), file.getPath(), importDeclaration.getBeginLine(), importDeclaration.getBeginColumn()));
                             }
                         }
                     }
 
                 } catch (Exception e) {
-                    throw new EnforcerRuleException(e.getMessage());
+                    throw new EnforcerRuleException(String.format("%s: %s", file.getPath(), e.getMessage()));
                 }
             }
         });
@@ -100,13 +121,13 @@ public class CodelineFailureRule implements EnforcerRule {
                                 sb.append("\n");
                                 sb.append(line);
 
-                                throw new EnforcerRuleException(file, "Illegal Pattern", sb.toString());
+                                throw new EnforcerRuleException(String.format("%s: %s", file.getPath(), sb.toString()));
                             }
                         }
                     }
                 } catch (IOException e) {
                     log.error(e.getMessage());
-                    throw new EnforcerRuleException(e.getMessage());
+                    throw new EnforcerRuleException(String.format("%s: %s", file.getPath(), e.getMessage()));
                 }
 
 
@@ -131,8 +152,10 @@ public class CodelineFailureRule implements EnforcerRule {
             if (file.isDirectory()) {
                 checkFiles(file, type, process);
             } else {
-                log.debug("Checking file " + file.getPath());
-                process.process(file);
+                if (!fileIsAcceptable.apply(file)) {
+                    log.debug("Checking file " + file.getPath());
+                    process.process(file);
+                }
             }
         }
     }
