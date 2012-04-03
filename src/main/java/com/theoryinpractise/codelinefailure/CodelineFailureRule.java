@@ -33,8 +33,10 @@ public class CodelineFailureRule implements EnforcerRule {
     private Predicate<File> fileIsAcceptable = new Predicate<File>() {
 
         List<Pattern> unacceptablePatterns = ImmutableList.of(
+                Pattern.compile("\\..*"),
                 Pattern.compile("#.*"),
-                Pattern.compile(".*(\\.orig)$")
+                Pattern.compile(".*(\\.orig)$"),
+                Pattern.compile(".*(\\.swp)$")
         );
 
         public boolean apply(@Nullable File file) {
