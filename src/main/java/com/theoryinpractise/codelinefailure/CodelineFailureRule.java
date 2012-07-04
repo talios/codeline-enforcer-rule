@@ -154,7 +154,7 @@ public class CodelineFailureRule implements EnforcerRule {
             if (file.isDirectory()) {
                 checkFiles(file, type, process);
             } else {
-                if (!fileIsAcceptable.apply(file)) {
+                if (fileIsAcceptable.apply(file)) {
                     log.debug("Checking file " + file.getPath());
                     process.process(file);
                 }
