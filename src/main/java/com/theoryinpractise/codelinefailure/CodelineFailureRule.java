@@ -2,16 +2,19 @@ package com.theoryinpractise.codelinefailure;
 
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.ImportDeclaration;
-import com.google.common.base.Function;
-import com.google.common.base.Predicate;
-import com.google.common.collect.ImmutableList;
+import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.imports.ImportDeclaration;
+import javaslang.Function1;
+import javaslang.control.Validation;
 import org.apache.maven.enforcer.rule.api.EnforcerRule;
 import org.apache.maven.enforcer.rule.api.EnforcerRuleException;
 import org.apache.maven.enforcer.rule.api.EnforcerRuleHelper;
 import org.apache.maven.plugin.logging.Log;
 import org.apache.maven.project.MavenProject;
 import org.codehaus.plexus.component.configurator.expression.ExpressionEvaluationException;
+import ru.lanwen.verbalregex.VerbalExpression;
 
 import javax.annotation.Nullable;
 import java.io.File;
@@ -20,49 +23,52 @@ import java.io.IOException;
 import java.io.LineNumberReader;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
+
+import static com.theoryinpractise.codelinefailure.CheckUnusedPrivateFields.checkUnusedPrivates;
+import static javaslang.control.Validation.invalid;
+import static javaslang.control.Validation.valid;
 
 public class CodelineFailureRule implements EnforcerRule {
 
-  private List<String> patterns = new ArrayList<String>();
+  private List<String> patterns = new ArrayList<>();
 
-  private List<String> classes = new ArrayList<String>();
+  private List<String> classes = new ArrayList<>();
+
+  private Boolean checkPrivates = Boolean.FALSE;
 
   private Log log;
 
-  private Predicate<File> fileIsAcceptable = new Predicate<File>() {
+  private static final VerbalExpression unacceptableFiles =
+      VerbalExpression.regex().startOfLine().oneOf("\\..*", "#.*", ".*(\\.orig)", ".*(\\.swp)").endOfLine().build();
 
-    List<Pattern> unacceptablePatterns = ImmutableList.of(
-        Pattern.compile("\\..*"),
-        Pattern.compile("#.*"),
-        Pattern.compile(".*(\\.orig)$"),
-        Pattern.compile(".*(\\.swp)$")
-    );
-
-    public boolean apply(@Nullable File file) {
-
-      String fileName = file.getName();
-      for (Pattern unacceptablePattern : unacceptablePatterns) {
-        if (unacceptablePattern.matcher(fileName).matches()) {
-          return false;
-        }
-      }
-
-      return true;
-    }
-  };
+  private static Predicate<File> fileIsAcceptable = file -> !unacceptableFiles.testExact(file.getName());
 
   public void execute(EnforcerRuleHelper helper) throws EnforcerRuleException {
     log = helper.getLog();
 
     try {
-      // get the various expressions out of the helper.
       MavenProject project = (MavenProject) helper.evaluate("${project}");
-
       File srcDir = new File(project.getBuild().getSourceDirectory());
 
-      checkPatterns(srcDir, patterns);
-      checkClasses(srcDir, classes);
+      Predicate<String> classesPredicate = buildClassPredicate(classes);
+
+      Validation<EnforcerRuleException, File> patternResult = checkPatterns(srcDir, patterns);
+      Validation<EnforcerRuleException, File> classesResult = checkClasses(srcDir, classesPredicate);
+      Validation<EnforcerRuleException, File> unusedPrivatesResult = checkPrivates ? checkUnusedPrivates(log, srcDir) : Validation.valid(srcDir);
+
+      Validation<javaslang.collection.List<EnforcerRuleException>, File> result =
+          Validation.combine(patternResult, classesResult, unusedPrivatesResult).ap((v1, v2, v3) -> srcDir);
+
+      if (result.isInvalid()) {
+        javaslang.collection.List<EnforcerRuleException> errors = result.getError();
+        for (EnforcerRuleException error : errors) {
+          log.error(error.getMessage());
+        }
+
+        throw errors.head();
+      }
 
     } catch (ExpressionEvaluationException e) {
       throw new EnforcerRuleException("Unable to lookup an expression " + e.getLocalizedMessage(), e);
@@ -71,75 +77,82 @@ public class CodelineFailureRule implements EnforcerRule {
     }
   }
 
-  private void checkClasses(File srcDir, final List<String> classes) throws IOException, EnforcerRuleException {
+  private Validation<EnforcerRuleException, File> checkClasses(File srcDir, Predicate<String> classesPredicate) throws IOException, EnforcerRuleException {
 
-    final Predicate<String> classesPredicate = new Predicate<String>() {
-      @Override
-      public boolean apply(@Nullable String input) {
-        for (String aClass : classes) {
-          if (Pattern.compile(aClass).matcher(input).matches()) {
-            return true;
+    return checkFiles(
+        log,
+        srcDir,
+        "classes",
+        file -> {
+          try {
+            CompilationUnit cu = JavaParser.parse(file);
+
+            if (cu.getImports() != null) {
+              for (ImportDeclaration importDeclaration : cu.getImports()) {
+                String packageName = importDeclaration.getChildNodes().get(0).toString();
+                if (classesPredicate.test(packageName)) {
+                  return invalid(
+                      new EnforcerRuleException(
+                          String.format(
+                              "%s: Illegal class import - %s at %s:%d:%d is bad!",
+                              file.getPath(),
+                              packageName,
+                              file.getPath(),
+                              importDeclaration.getBegin().line,
+                              importDeclaration.getBegin().column)));
+                }
+              }
+            }
+            return valid(file);
+          } catch (Exception e) {
+            return invalid(new EnforcerRuleException(String.format("%s: %s", file.getPath(), e.getMessage())));
           }
+        });
+  }
+
+  private Predicate<String> buildClassPredicate(List<String> classes) {
+    return input -> {
+      for (String aClass : classes) {
+        if (Pattern.compile(aClass).matcher(input).matches()) {
+          return true;
         }
-        return false;
       }
+      return false;
     };
-
-    checkFiles(srcDir, "patterns", new Process<File>() {
-      @Override
-      public void process(@Nullable final File file) throws EnforcerRuleException {
-
-        try {
-          CompilationUnit cu = JavaParser.parse(file);
-
-          if (cu.getImports() != null) {
-            for (ImportDeclaration importDeclaration : cu.getImports()) {
-              if (classesPredicate.apply(importDeclaration.getName().toString())) {
-                throw new EnforcerRuleException(
-                    String.format("%s: Illegal class import - %s at %s:%d:%d is bad!", file.getPath(), importDeclaration.getName().toString(), file.getPath(), importDeclaration.getBeginLine(), importDeclaration.getBeginColumn()));
-              }
-            }
-          }
-
-        } catch (Exception e) {
-          throw new EnforcerRuleException(String.format("%s: %s", file.getPath(), e.getMessage()));
-        }
-      }
-    });
   }
 
-  private void checkPatterns(File srcDir, final List<String> patterns) throws IOException, EnforcerRuleException {
-    checkFiles(srcDir, "patterns", new Process<File>() {
-      @Override
-      public void process(@Nullable File file) throws EnforcerRuleException {
-        try {
-          LineNumberReader reader = new LineNumberReader(new FileReader(file));
-          String line;
-          while ((line = reader.readLine()) != null) {
-            for (String pattern : patterns) {
-              if (Pattern.compile(pattern).matcher(line).find()) {
-                StringBuilder sb = new StringBuilder();
-                sb.append("Found pattern " + pattern + " at " + file.getPath() + ":" + reader.getLineNumber());
-                sb.append("\n");
-                sb.append(line);
-
-                throw new EnforcerRuleException(String.format("%s: %s", file.getPath(), sb.toString()));
+  private Validation<EnforcerRuleException, File> checkPatterns(File srcDir, final List<String> patterns) throws IOException, EnforcerRuleException {
+    return checkFiles(
+        log,
+        srcDir,
+        "patterns",
+        file -> {
+          try {
+            LineNumberReader reader = new LineNumberReader(new FileReader(file));
+            String line;
+            while ((line = reader.readLine()) != null) {
+              for (String pattern : patterns) {
+                if (Pattern.compile(pattern).matcher(line).find()) {
+                  StringBuilder sb = new StringBuilder();
+                  sb.append("Found pattern " + pattern + " at " + file.getPath() + ":" + reader.getLineNumber());
+                  sb.append("\n");
+                  sb.append(line);
+                  return invalid(new EnforcerRuleException(String.format("%s: %s", file.getPath(), sb.toString())));
+                }
               }
             }
+            return valid(file);
+          } catch (IOException e) {
+            log.error(e.getMessage());
+            return invalid(new EnforcerRuleException(String.format("%s: %s", file.getPath(), e.getMessage())));
           }
-        } catch (IOException e) {
-          log.error(e.getMessage());
-          throw new EnforcerRuleException(String.format("%s: %s", file.getPath(), e.getMessage()));
-        }
-
-
-      }
-    });
+        });
   }
 
-  private void checkFiles(File srcDir, String type, Process<File> process) throws IOException, EnforcerRuleException {
+  public static Validation<EnforcerRuleException, File> checkFiles(
+      Log log, File srcDir, String type, Function1<File, Validation<EnforcerRuleException, File>> process) throws IOException, EnforcerRuleException {
 
-    if (srcDir == null) return;
+    if (srcDir == null) return valid(null);
 
     log.debug("Checking " + type + "  in " + srcDir.getPath());
 
@@ -147,19 +160,26 @@ public class CodelineFailureRule implements EnforcerRule {
 
     if (files == null) {
       log.debug("No files found for " + srcDir.getPath());
-      return;
+      return valid(null);
     }
 
     for (File file : files) {
       if (file.isDirectory()) {
-        checkFiles(file, type, process);
+        Validation<EnforcerRuleException, File> result = checkFiles(log, file, type, process);
+        if (result.isInvalid()) {
+          return result;
+        }
       } else {
-        if (fileIsAcceptable.apply(file)) {
+        if (fileIsAcceptable.test(file)) {
           log.debug("Checking file " + file.getPath());
-          process.process(file);
+          Validation<EnforcerRuleException, File> result = process.apply(file);
+          if (result.isInvalid()) {
+            return result;
+          }
         }
       }
     }
+    return valid(null);
   }
 
   public String getCacheId() {
@@ -174,11 +194,12 @@ public class CodelineFailureRule implements EnforcerRule {
     return false;
   }
 
-  public abstract static class Process<T> implements Function<T, EnforcerRuleException> {
-    abstract void process(T t) throws EnforcerRuleException;
+  @FunctionalInterface
+  public interface Process<T> extends Function1<T, EnforcerRuleException> {
+    void process(T t) throws EnforcerRuleException;
 
     @Override
-    public final EnforcerRuleException apply(@Nullable T input) {
+    default EnforcerRuleException apply(@Nullable T input) {
       try {
         process(input);
       } catch (EnforcerRuleException e) {
@@ -186,5 +207,23 @@ public class CodelineFailureRule implements EnforcerRule {
       }
       return null;
     }
+  }
+
+  static String nodeName(Node node) {
+    if (node instanceof FieldDeclaration) {
+      return fieldName((FieldDeclaration) node);
+    }
+    if (node instanceof MethodDeclaration) {
+      return methodName((MethodDeclaration) node);
+    }
+    throw new IllegalArgumentException("Unsupported node type)");
+  }
+
+  static String fieldName(FieldDeclaration f) {
+    return f.getVariable(0).getId().toString();
+  }
+
+  static String methodName(MethodDeclaration m) {
+    return m.getNameAsString();
   }
 }
