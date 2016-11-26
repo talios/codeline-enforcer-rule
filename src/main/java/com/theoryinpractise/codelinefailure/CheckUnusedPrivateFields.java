@@ -71,14 +71,14 @@ public class CheckUnusedPrivateFields {
 
   private static boolean detectUnusedMethods(List<Node> allNodes, Node m) {
     String methodName = nodeName(m);
-    Pattern usage = Pattern.compile("(::" + methodName + "|" + methodName + "\\()");
+    Pattern usage = Pattern.compile("(::" + methodName + "\\)|" + methodName + "\\()");
     Predicate<Node> usageP = s -> usage.matcher(s.toString()).find();
 
     return allNodes.toStream().filter(node -> node != m).toJavaStream().noneMatch(usageP);
   }
 
   private static boolean detectUnusedFields(List<Node> allNodes, Node f) {
-    Pattern usage = Pattern.compile(nodeName(f));
+    Pattern usage = Pattern.compile(nodeName(f) + "\\W");
     Pattern assignment = Pattern.compile(nodeName(f) + "\\s*=[^=]");
 
     Predicate<Node> usageP = s -> usage.matcher(s.toString()).find();
