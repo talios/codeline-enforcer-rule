@@ -7,6 +7,7 @@ import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.imports.ImportDeclaration;
 import javaslang.Function1;
+import javaslang.collection.List;
 import javaslang.control.Validation;
 import org.apache.maven.enforcer.rule.api.EnforcerRule;
 import org.apache.maven.enforcer.rule.api.EnforcerRuleException;
@@ -16,13 +17,11 @@ import org.apache.maven.project.MavenProject;
 import org.codehaus.plexus.component.configurator.expression.ExpressionEvaluationException;
 import ru.lanwen.verbalregex.VerbalExpression;
 
-import javax.annotation.Nullable;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.LineNumberReader;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
@@ -32,9 +31,9 @@ import static javaslang.control.Validation.valid;
 
 public class CodelineFailureRule implements EnforcerRule {
 
-  private List<String> patterns = new ArrayList<>();
+  private java.util.List<String> patterns = new ArrayList<>();
 
-  private List<String> classes = new ArrayList<>();
+  private java.util.List<String> classes = new ArrayList<>();
 
   private Boolean checkPrivates = Boolean.FALSE;
 
@@ -52,22 +51,28 @@ public class CodelineFailureRule implements EnforcerRule {
       MavenProject project = (MavenProject) helper.evaluate("${project}");
       File srcDir = new File(project.getBuild().getSourceDirectory());
 
-      Predicate<String> classesPredicate = buildClassPredicate(classes);
+      Predicate<String> classesPredicate = buildClassPredicate(List.ofAll(classes));
 
-      Validation<EnforcerRuleException, File> patternResult = checkPatterns(srcDir, patterns);
-      Validation<EnforcerRuleException, File> classesResult = checkClasses(srcDir, classesPredicate);
-      Validation<EnforcerRuleException, File> unusedPrivatesResult = checkPrivates ? checkUnusedPrivates(log, srcDir) : Validation.valid(srcDir);
+      List<Validation<EnforcerRuleException, File>> patternResult = checkPatterns(srcDir, List.ofAll(patterns));
+      List<Validation<EnforcerRuleException, File>> classesResult = checkClasses(srcDir, classesPredicate);
+      List<Validation<EnforcerRuleException, File>> unusedPrivatesResult = checkUnusedPrivates(log, checkPrivates, srcDir);
 
-      Validation<javaslang.collection.List<EnforcerRuleException>, File> result =
-          Validation.combine(patternResult, classesResult, unusedPrivatesResult).ap((v1, v2, v3) -> srcDir);
+      List<Validation<EnforcerRuleException, File>> validations = patternResult.appendAll(classesResult).appendAll(unusedPrivatesResult);
 
-      if (result.isInvalid()) {
-        javaslang.collection.List<EnforcerRuleException> errors = result.getError();
-        for (EnforcerRuleException error : errors) {
-          log.error(error.getMessage());
-        }
+      List<Validation<EnforcerRuleException, File>> errors = validations.filter(Validation::isEmpty).distinct();
 
-        throw errors.head();
+      errors
+          .groupBy(v -> v.getError().getSource())
+          .forEach(
+              (source, validations1) -> {
+                log.warn("Violations in: " + source);
+                for (Validation<EnforcerRuleException, File> validation : validations1) {
+                  log.warn("    " + validation.getError().getMessage());
+                }
+              });
+
+      if (!errors.isEmpty()) {
+        throw new EnforcerRuleException(String.format("%s code enforcer violations found - check build log.", errors.length()));
       }
 
     } catch (ExpressionEvaluationException e) {
@@ -77,7 +82,8 @@ public class CodelineFailureRule implements EnforcerRule {
     }
   }
 
-  private Validation<EnforcerRuleException, File> checkClasses(File srcDir, Predicate<String> classesPredicate) throws IOException, EnforcerRuleException {
+  private List<Validation<EnforcerRuleException, File>> checkClasses(File srcDir, Predicate<String> classesPredicate)
+      throws IOException, EnforcerRuleException {
 
     return checkFiles(
         log,
@@ -91,21 +97,23 @@ public class CodelineFailureRule implements EnforcerRule {
               for (ImportDeclaration importDeclaration : cu.getImports()) {
                 String packageName = importDeclaration.getChildNodes().get(0).toString();
                 if (classesPredicate.test(packageName)) {
-                  return invalid(
-                      new EnforcerRuleException(
-                          String.format(
-                              "%s: Illegal class import - %s at %s:%d:%d is bad!",
-                              file.getPath(),
-                              packageName,
-                              file.getPath(),
-                              importDeclaration.getBegin().line,
-                              importDeclaration.getBegin().column)));
+                  return List.of(
+                      invalid(
+                          new EnforcerRuleException(
+                              relativePathOfFile(file),
+                              String.format(
+                                  "Illegal class import - %s at %s:%d:%d is bad!",
+                                  packageName,
+                                  file.getPath(),
+                                  importDeclaration.getBegin().line,
+                                  importDeclaration.getBegin().column),
+                              "")));
                 }
               }
             }
-            return valid(file);
+            return List.of(valid(file));
           } catch (Exception e) {
-            return invalid(new EnforcerRuleException(String.format("%s: %s", file.getPath(), e.getMessage())));
+            return List.of(invalid(new EnforcerRuleException(file.getPath(), e.getMessage(), "")));
           }
         });
   }
@@ -121,7 +129,7 @@ public class CodelineFailureRule implements EnforcerRule {
     };
   }
 
-  private Validation<EnforcerRuleException, File> checkPatterns(File srcDir, final List<String> patterns) throws IOException, EnforcerRuleException {
+  private List<Validation<EnforcerRuleException, File>> checkPatterns(File srcDir, final List<String> patterns) throws IOException, EnforcerRuleException {
     return checkFiles(
         log,
         srcDir,
@@ -137,22 +145,32 @@ public class CodelineFailureRule implements EnforcerRule {
                   sb.append("Found pattern " + pattern + " at " + file.getPath() + ":" + reader.getLineNumber());
                   sb.append("\n");
                   sb.append(line);
-                  return invalid(new EnforcerRuleException(String.format("%s: %s", file.getPath(), sb.toString())));
+                  return List.of(invalid(new EnforcerRuleException(String.format("%s: %s", file.getPath(), sb.toString()))));
                 }
               }
             }
-            return valid(file);
+            return List.of(valid(file));
           } catch (IOException e) {
             log.error(e.getMessage());
-            return invalid(new EnforcerRuleException(String.format("%s: %s", file.getPath(), e.getMessage())));
+            return List.of(invalid(new EnforcerRuleException(String.format("%s: %s", file.getPath(), e.getMessage()))));
           }
         });
   }
 
-  public static Validation<EnforcerRuleException, File> checkFiles(
-      Log log, File srcDir, String type, Function1<File, Validation<EnforcerRuleException, File>> process) throws IOException, EnforcerRuleException {
+  public static List<Validation<EnforcerRuleException, File>> checkFiles(
+      Log log, File srcDir, String type, Function1<File, List<Validation<EnforcerRuleException, File>>> process) throws IOException, EnforcerRuleException {
+    return checkFiles(List.empty(), log, srcDir, type, process);
+  }
 
-    if (srcDir == null) return valid(null);
+  public static List<Validation<EnforcerRuleException, File>> checkFiles(
+      List<Validation<EnforcerRuleException, File>> validations,
+      Log log,
+      File srcDir,
+      String type,
+      Function1<File, List<Validation<EnforcerRuleException, File>>> process)
+      throws IOException, EnforcerRuleException {
+
+    if (srcDir == null) return validations;
 
     log.debug("Checking " + type + "  in " + srcDir.getPath());
 
@@ -160,26 +178,22 @@ public class CodelineFailureRule implements EnforcerRule {
 
     if (files == null) {
       log.debug("No files found for " + srcDir.getPath());
-      return valid(null);
+      return validations;
     }
 
     for (File file : files) {
       if (file.isDirectory()) {
-        Validation<EnforcerRuleException, File> result = checkFiles(log, file, type, process);
-        if (result.isInvalid()) {
-          return result;
-        }
+        List<Validation<EnforcerRuleException, File>> result = checkFiles(validations, log, file, type, process);
+        validations = validations.appendAll(result);
       } else {
         if (fileIsAcceptable.test(file)) {
           log.debug("Checking file " + file.getPath());
-          Validation<EnforcerRuleException, File> result = process.apply(file);
-          if (result.isInvalid()) {
-            return result;
-          }
+          List<Validation<EnforcerRuleException, File>> result = process.apply(file);
+          validations = validations.appendAll(result);
         }
       }
     }
-    return valid(null);
+    return validations;
   }
 
   public String getCacheId() {
@@ -192,21 +206,6 @@ public class CodelineFailureRule implements EnforcerRule {
 
   public boolean isResultValid(EnforcerRule arg0) {
     return false;
-  }
-
-  @FunctionalInterface
-  public interface Process<T> extends Function1<T, EnforcerRuleException> {
-    void process(T t) throws EnforcerRuleException;
-
-    @Override
-    default EnforcerRuleException apply(@Nullable T input) {
-      try {
-        process(input);
-      } catch (EnforcerRuleException e) {
-        return e;
-      }
-      return null;
-    }
   }
 
   static String nodeName(Node node) {
@@ -225,5 +224,14 @@ public class CodelineFailureRule implements EnforcerRule {
 
   static String methodName(MethodDeclaration m) {
     return m.getNameAsString();
+  }
+
+  static String relativePathOfFile(File file) {
+    String currentPath = new File("").getAbsolutePath();
+    if (file.getAbsolutePath().startsWith(currentPath)) {
+      return file.getAbsolutePath().substring(currentPath.length() + 1);
+    } else {
+      return file.getAbsolutePath();
+    }
   }
 }

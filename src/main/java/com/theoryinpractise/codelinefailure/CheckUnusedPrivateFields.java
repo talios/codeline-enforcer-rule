@@ -6,12 +6,7 @@ import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.stmt.BlockStmt;
-import com.github.javaparser.ast.stmt.IfStmt;
-import com.github.javaparser.ast.stmt.WhileStmt;
 import javaslang.collection.List;
-import javaslang.collection.Stream;
-import javaslang.control.Option;
 import javaslang.control.Validation;
 import org.apache.maven.enforcer.rule.api.EnforcerRuleException;
 import org.apache.maven.plugin.logging.Log;
@@ -23,13 +18,17 @@ import java.util.regex.Pattern;
 
 import static com.theoryinpractise.codelinefailure.CodelineFailureRule.checkFiles;
 import static com.theoryinpractise.codelinefailure.CodelineFailureRule.nodeName;
+import static com.theoryinpractise.codelinefailure.CodelineFailureRule.relativePathOfFile;
 import static javaslang.control.Validation.invalid;
 import static javaslang.control.Validation.valid;
 
 public class CheckUnusedPrivateFields {
 
-  public static Validation<EnforcerRuleException, File> checkUnusedPrivates(Log log, File srcDir) throws IOException, EnforcerRuleException {
-
+  public static List<Validation<EnforcerRuleException, File>> checkUnusedPrivates(Log log, Boolean checkPrivates, File srcDir)
+      throws IOException, EnforcerRuleException {
+    if (!checkPrivates) {
+      return List.empty();
+    }
     return checkFiles(
         log,
         srcDir,
@@ -51,20 +50,19 @@ public class CheckUnusedPrivateFields {
               List<Node> privateMethods = List.narrow(List.ofAll(classDef.getMethods()).filter(MethodDeclaration::isPrivate));
               List<Node> allNodes = List.ofAll(classDef.getNodesByType(Node.class));
 
-              Stream<Node> unusedPrivateFieldNames = privateFields.toStream().filter(f -> detectUnusedFields(allNodes, f));
-              Stream<Node> unusedPrivateMethods = privateMethods.toStream().filter(m -> detectUnusedMethods(allNodes, m));
+              List<Node> unusedPrivateFieldNames = privateFields.filter(f -> detectUnusedFields(allNodes, f));
+              List<Node> unusedPrivateMethods = privateMethods.filter(m -> detectUnusedMethods(allNodes, m));
 
-              Option<Validation<EnforcerRuleException, File>> optionalValidation =
-                  unusedPrivateFieldNames.appendAll(unusedPrivateMethods).headOption().map(f -> invalidateNodeForFile(f, file));
-
-              return optionalValidation.getOrElse(valid(file));
+              List<Validation<EnforcerRuleException, File>> validations =
+                  unusedPrivateFieldNames.appendAll(unusedPrivateMethods).map(node -> invalidateNodeForFile(node, file));
+              return validations;
             } else {
-              return valid(file);
+              return List.of(valid(file));
             }
 
           } catch (Exception e) {
             e.printStackTrace();
-            return invalid(new EnforcerRuleException(String.format("%s: %s", file.getPath(), e.getMessage())));
+            return List.of(invalid(new EnforcerRuleException(String.format("%s: %s", file.getPath(), e.getMessage()))));
           }
         });
   }
@@ -78,7 +76,7 @@ public class CheckUnusedPrivateFields {
   }
 
   private static boolean detectUnusedFields(List<Node> allNodes, Node f) {
-    Pattern usage = Pattern.compile(nodeName(f) + "\\W");
+    Pattern usage = Pattern.compile("[^.]" + nodeName(f) + "\\W");
     Pattern assignment = Pattern.compile(nodeName(f) + "\\s*=[^=]");
 
     Predicate<Node> usageP = s -> usage.matcher(s.toString()).find();
@@ -88,26 +86,12 @@ public class CheckUnusedPrivateFields {
   }
 
   private static Validation<EnforcerRuleException, File> invalidateNodeForFile(Node node, File file) {
+    String relativePathOfFile = relativePathOfFile(file);
     return invalid(
         new EnforcerRuleException(
+            relativePathOfFile,
             String.format(
-                "%s: Unused private members found - %s at %s:%d:%d is bad!",
-                file.getPath(),
-                node.toString(),
-                file.getPath(),
-                node.getBegin().line,
-                node.getBegin().column)));
-  }
-
-  private static boolean expandChildren(Node node) {
-    return node instanceof MethodDeclaration || node instanceof BlockStmt || node instanceof IfStmt || node instanceof WhileStmt;
-  }
-
-  private static Iterable<? extends Node> expandDeclaration(Node node) {
-    if (expandChildren(node)) {
-      return List.ofAll(node.getChildNodes());
-    } else {
-      return List.of(node);
-    }
+                "Unused private members found - %s at %s:%d:%d is bad!", nodeName(node), relativePathOfFile, node.getBegin().line, node.getBegin().column),
+            node.toString()));
   }
 }
