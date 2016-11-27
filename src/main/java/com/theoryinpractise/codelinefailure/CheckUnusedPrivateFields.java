@@ -95,7 +95,7 @@ public class CheckUnusedPrivateFields {
 
   private static boolean detectUnusedMethods(List<Node> allNodes, Node m) {
     String methodName = nodeName(m);
-    Pattern usage = Pattern.compile("(::" + methodName + "\\)|" + methodName + "\\()");
+    Pattern usage = Pattern.compile("(::" + methodName + "\\W|" + methodName + "\\()");
     Predicate<Node> usageP = s -> usage.matcher(s.toString()).find();
 
     return allNodes.toStream().filter(node -> node != m).toJavaStream().noneMatch(usageP);
