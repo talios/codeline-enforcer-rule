@@ -6,6 +6,16 @@ import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.body.VariableDeclarator;
+import com.github.javaparser.ast.body.VariableDeclaratorId;
+import com.github.javaparser.ast.comments.LineComment;
+import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.expr.SimpleName;
+import com.github.javaparser.ast.expr.StringLiteralExpr;
+import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import com.github.javaparser.ast.type.PrimitiveType;
 import javaslang.collection.List;
 import javaslang.control.Validation;
 import org.apache.maven.enforcer.rule.api.EnforcerRuleException;
@@ -13,6 +23,7 @@ import org.apache.maven.plugin.logging.Log;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
@@ -48,7 +59,22 @@ public class CheckUnusedPrivateFields {
 
               List<Node> privateFields = List.narrow(List.ofAll(classDef.getFields()).filter(FieldDeclaration::isPrivate));
               List<Node> privateMethods = List.narrow(List.ofAll(classDef.getMethods()).filter(MethodDeclaration::isPrivate));
-              List<Node> allNodes = List.ofAll(classDef.getNodesByType(Node.class));
+              List<Node> allNodes =
+                  List.ofAll(classDef.getNodesByType(Node.class))
+                      .filter(
+                          node -> {
+                            return !(node instanceof MethodDeclaration
+                                || node instanceof StringLiteralExpr
+                                || node instanceof SimpleName
+                                || node instanceof NameExpr
+                                || node instanceof LineComment
+                                || node instanceof VariableDeclarator
+                                || node instanceof VariableDeclaratorId
+                                || node instanceof Parameter
+                                || node instanceof PrimitiveType
+                                || node instanceof ClassOrInterfaceType
+                                || node instanceof BlockStmt);
+                          });
 
               List<Node> unusedPrivateFieldNames = privateFields.filter(f -> detectUnusedFields(allNodes, f));
               List<Node> unusedPrivateMethods = privateMethods.filter(m -> detectUnusedMethods(allNodes, m));
@@ -75,10 +101,29 @@ public class CheckUnusedPrivateFields {
     return allNodes.toStream().filter(node -> node != m).toJavaStream().noneMatch(usageP);
   }
 
+  private static List<String> findMethodParameterNames(Node node) {
+    Optional<Node> parent = node.getParentNode();
+    while (parent.isPresent() && !(parent.get() instanceof MethodDeclaration)) {
+      parent = parent.get().getParentNode();
+    }
+    return parent
+        .map(
+            parentNode -> {
+              MethodDeclaration methodDeclaration = (MethodDeclaration) parentNode;
+              return List.ofAll(methodDeclaration.getParameters()).map((parameter) -> parameter.getId().toString());
+            })
+        .orElse(List.empty());
+  }
+
   private static boolean detectUnusedFields(List<Node> allNodes, Node f) {
-    Pattern usage = Pattern.compile("(this\\." + nodeName(f) + "|(?!\\.)" + nodeName(f) + ")(?:\\.|\\W)");
-    Pattern assignment = Pattern.compile(nodeName(f) + "\\s*=[^=]");
-    Predicate<Node> usageP = s -> usage.matcher(s.toString()).find();
+    String fieldName = nodeName(f);
+    Pattern usage = Pattern.compile(String.format("(this\\.%s|(?!\\.)%s)(?:\\.|\\W)", fieldName, fieldName));
+    Pattern assignment = Pattern.compile(String.format("(this\\.%s|%s)\\s*=[^=]", fieldName, fieldName));
+    Predicate<Node> usageP =
+        node -> {
+          boolean used = usage.matcher(node.toString()).find();
+          return used && !findMethodParameterNames(node).contains(fieldName);
+        };
     Predicate<Node> assignmentP = s -> assignment.matcher(s.toString()).find();
 
     return allNodes.toStream().filter(node -> node != f).filter(assignmentP.negate()).toJavaStream().noneMatch(usageP);
@@ -89,8 +134,7 @@ public class CheckUnusedPrivateFields {
     return invalid(
         new EnforcerRuleException(
             relativePathOfFile,
-            String.format(
-                "Unused private members found - %s at %s:%d:%d is bad!", nodeName(node), relativePathOfFile, node.getBegin().line, node.getBegin().column),
+            String.format("%s:%d:%d - Unused private members found:  %s", file.getName(), node.getBegin().line, node.getBegin().column, nodeName(node)),
             node.toString()));
   }
 }
