@@ -76,9 +76,8 @@ public class CheckUnusedPrivateFields {
   }
 
   private static boolean detectUnusedFields(List<Node> allNodes, Node f) {
-    Pattern usage = Pattern.compile("[^.]" + nodeName(f) + "\\W");
+    Pattern usage = Pattern.compile("(this\\." + nodeName(f) + "|(?!\\.)" + nodeName(f) + ")(?:\\.|\\W)");
     Pattern assignment = Pattern.compile(nodeName(f) + "\\s*=[^=]");
-
     Predicate<Node> usageP = s -> usage.matcher(s.toString()).find();
     Predicate<Node> assignmentP = s -> assignment.matcher(s.toString()).find();
 
