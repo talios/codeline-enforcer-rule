@@ -3,8 +3,6 @@ package com.theoryinpractise.codelinefailure;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
-import com.google.common.base.Function;
-import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import org.apache.maven.enforcer.rule.api.EnforcerRule;
 import org.apache.maven.enforcer.rule.api.EnforcerRuleException;
@@ -20,36 +18,37 @@ import java.io.IOException;
 import java.io.LineNumberReader;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
 public class CodelineFailureRule implements EnforcerRule {
 
-  private List<String> patterns = new ArrayList<String>();
+  private List<String> patterns = new ArrayList<>();
 
-  private List<String> classes = new ArrayList<String>();
+  private List<String> classes = new ArrayList<>();
 
   private Log log;
 
   private Predicate<File> fileIsAcceptable = new Predicate<File>() {
 
-    List<Pattern> unacceptablePatterns = ImmutableList.of(
-        Pattern.compile("\\..*"),
-        Pattern.compile("#.*"),
-        Pattern.compile(".*(\\.orig)$"),
-        Pattern.compile(".*(\\.swp)$")
-    );
+      List<Pattern> unacceptablePatterns = ImmutableList.of(
+              Pattern.compile("\\..*"),
+              Pattern.compile("#.*"),
+              Pattern.compile(".*(\\.orig)$"),
+              Pattern.compile(".*(\\.swp)$")
+      );
 
-    public boolean apply(@Nullable File file) {
+      public boolean test(@Nullable File file) {
+          String fileName = file.getName();
+          for (Pattern unacceptablePattern : unacceptablePatterns) {
+              if (unacceptablePattern.matcher(fileName).matches()) {
+                  return false;
+              }
+          }
 
-      String fileName = file.getName();
-      for (Pattern unacceptablePattern : unacceptablePatterns) {
-        if (unacceptablePattern.matcher(fileName).matches()) {
-          return false;
-        }
+          return true;
       }
-
-      return true;
-    }
   };
 
   public void execute(EnforcerRuleHelper helper) throws EnforcerRuleException {
@@ -72,17 +71,14 @@ public class CodelineFailureRule implements EnforcerRule {
   }
 
   private void checkClasses(File srcDir, final List<String> classes) throws IOException, EnforcerRuleException {
-
-    final Predicate<String> classesPredicate = new Predicate<String>() {
-      @Override
-      public boolean apply(@Nullable String input) {
-        for (String aClass : classes) {
-          if (Pattern.compile(aClass).matcher(input).matches()) {
-            return true;
-          }
+      
+    final Predicate<String> classesPredicate = input -> {
+      for (String aClass : classes) {
+        if (Pattern.compile(aClass).matcher(input).matches()) {
+          return true;
         }
-        return false;
       }
+      return false;
     };
 
     checkFiles(srcDir, "patterns", new Process<File>() {
@@ -94,9 +90,9 @@ public class CodelineFailureRule implements EnforcerRule {
 
           if (cu.getImports() != null) {
             for (ImportDeclaration importDeclaration : cu.getImports()) {
-              if (classesPredicate.apply(importDeclaration.getName().toString())) {
+              if (classesPredicate.test(importDeclaration.getName().toString())) {
                 throw new EnforcerRuleException(
-                    String.format("%s: Illegal class import - %s at %s:%d:%d is bad!", file.getPath(), importDeclaration.getName().toString(), file.getPath(), importDeclaration.getBeginLine(), importDeclaration.getBeginColumn()));
+                    String.format("%s: Illegal class import - %s at %s:%s is bad!", file.getPath(), importDeclaration.getName().toString(), file.getPath(), importDeclaration.getRange().get().begin.toString()));
               }
             }
           }
@@ -154,7 +150,7 @@ public class CodelineFailureRule implements EnforcerRule {
       if (file.isDirectory()) {
         checkFiles(file, type, process);
       } else {
-        if (fileIsAcceptable.apply(file)) {
+        if (fileIsAcceptable.test(file)) {
           log.debug("Checking file " + file.getPath());
           process.process(file);
         }
