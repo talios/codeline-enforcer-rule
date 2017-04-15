@@ -4,7 +4,7 @@
 
   <groupId>com.theoryinpractise</groupId>
   <artifactId>codeline-enforcer-rule</artifactId>
-  <version>1.0.10-SNAPSHOT</version>
+  <version>1.0.9-SNAPSHOT</version>
   <packaging>jar</packaging>
 
   <name>Codeline Enforcer</name>
