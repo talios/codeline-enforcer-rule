@@ -4,7 +4,7 @@ import com.github.javaparser.JavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
-import com.github.javaparser.ast.nodeTypes.NodeWithModifiers;
+import com.github.javaparser.ast.nodeTypes.modifiers.NodeWithPrivateModifier;
 import javaslang.collection.HashSet;
 import javaslang.collection.Set;
 import org.testng.annotations.Test;
@@ -31,14 +31,20 @@ public class CodelineFailureRuleTest {
                 "}"
                 + "");
 
-    ClassOrInterfaceDeclaration classDef = cu.getClassByName("Test");
-    Set<FieldDeclaration> privateFields = HashSet.ofAll(classDef.getFields()).filter(NodeWithModifiers::isPrivate);
+    ClassOrInterfaceDeclaration classDef =
+        cu.getClassByName("Test")
+            .orElseThrow(() -> new AssertionError("Unable to parse Test class"));
+    Set<FieldDeclaration> privateFields =
+        HashSet.ofAll(classDef.getFields()).filter(NodeWithPrivateModifier::isPrivate);
 
     Set<FieldDeclaration> unusedPrivateFieldNames =
         privateFields.filter(
             f -> {
-              Pattern usage = Pattern.compile(fieldName(f) + "(\\.|;|\\))");
-              return classDef.getChildNodes().stream().noneMatch(node -> usage.matcher(node.toString()).find());
+              Pattern usage = Pattern.compile(fieldName(f) + "([.;)])");
+              return classDef
+                  .getChildNodes()
+                  .stream()
+                  .noneMatch(node -> usage.matcher(node.toString()).find());
             });
 
     if (!unusedPrivateFieldNames.isEmpty()) {

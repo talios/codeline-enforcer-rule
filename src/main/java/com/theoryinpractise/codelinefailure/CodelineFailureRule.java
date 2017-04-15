@@ -1,11 +1,12 @@
 package com.theoryinpractise.codelinefailure;
 
 import com.github.javaparser.JavaParser;
+import com.github.javaparser.Position;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.imports.ImportDeclaration;
 import javaslang.Function1;
 import javaslang.collection.List;
 import javaslang.control.Validation;
@@ -40,9 +41,14 @@ public class CodelineFailureRule implements EnforcerRule {
   private Log log;
 
   private static final VerbalExpression unacceptableFiles =
-      VerbalExpression.regex().startOfLine().oneOf("\\..*", "#.*", ".*(\\.orig)", ".*(\\.swp)").endOfLine().build();
+      VerbalExpression.regex()
+          .startOfLine()
+          .oneOf("\\..*", "#.*", ".*(\\.orig)", ".*(\\.swp)")
+          .endOfLine()
+          .build();
 
-  private static Predicate<File> fileIsAcceptable = file -> !unacceptableFiles.testExact(file.getName());
+  private static Predicate<File> fileIsAcceptable =
+      file -> !unacceptableFiles.testExact(file.getName());
 
   public void execute(EnforcerRuleHelper helper) throws EnforcerRuleException {
     log = helper.getLog();
@@ -53,13 +59,18 @@ public class CodelineFailureRule implements EnforcerRule {
 
       Predicate<String> classesPredicate = buildClassPredicate(List.ofAll(classes));
 
-      List<Validation<EnforcerRuleException, File>> patternResult = checkPatterns(srcDir, List.ofAll(patterns));
-      List<Validation<EnforcerRuleException, File>> classesResult = checkClasses(srcDir, classesPredicate);
-      List<Validation<EnforcerRuleException, File>> unusedPrivatesResult = checkUnusedPrivates(log, checkPrivates, srcDir);
+      List<Validation<EnforcerRuleException, File>> patternResult =
+          checkPatterns(srcDir, List.ofAll(patterns));
+      List<Validation<EnforcerRuleException, File>> classesResult =
+          checkClasses(srcDir, classesPredicate);
+      List<Validation<EnforcerRuleException, File>> unusedPrivatesResult =
+          checkUnusedPrivates(log, checkPrivates, srcDir);
 
-      List<Validation<EnforcerRuleException, File>> validations = patternResult.appendAll(classesResult).appendAll(unusedPrivatesResult);
+      List<Validation<EnforcerRuleException, File>> validations =
+          patternResult.appendAll(classesResult).appendAll(unusedPrivatesResult);
 
-      List<Validation<EnforcerRuleException, File>> errors = validations.filter(Validation::isEmpty).distinct();
+      List<Validation<EnforcerRuleException, File>> errors =
+          validations.filter(Validation::isEmpty).distinct();
 
       errors
           .groupBy(v -> v.getError().getSource())
@@ -72,18 +83,20 @@ public class CodelineFailureRule implements EnforcerRule {
               });
 
       if (!errors.isEmpty()) {
-        throw new EnforcerRuleException(String.format("%s code enforcer violations found - check build log.", errors.length()));
+        throw new EnforcerRuleException(
+            String.format("%s code enforcer violations found - check build log.", errors.length()));
       }
 
     } catch (ExpressionEvaluationException e) {
-      throw new EnforcerRuleException("Unable to lookup an expression " + e.getLocalizedMessage(), e);
+      throw new EnforcerRuleException(
+          "Unable to lookup an expression " + e.getLocalizedMessage(), e);
     } catch (IOException e) {
       throw new EnforcerRuleException(e.getMessage(), e);
     }
   }
 
-  private List<Validation<EnforcerRuleException, File>> checkClasses(File srcDir, Predicate<String> classesPredicate)
-      throws IOException, EnforcerRuleException {
+  private List<Validation<EnforcerRuleException, File>> checkClasses(
+      File srcDir, Predicate<String> classesPredicate) throws IOException, EnforcerRuleException {
 
     return checkFiles(
         log,
@@ -97,16 +110,14 @@ public class CodelineFailureRule implements EnforcerRule {
               for (ImportDeclaration importDeclaration : cu.getImports()) {
                 String packageName = importDeclaration.getChildNodes().get(0).toString();
                 if (classesPredicate.test(packageName)) {
+                  Position begin = importDeclaration.getBegin().orElse(Position.HOME);
                   return List.of(
                       invalid(
                           new EnforcerRuleException(
                               relativePathOfFile(file),
                               String.format(
                                   "Illegal class import - %s at %s:%d:%d is bad!",
-                                  packageName,
-                                  file.getPath(),
-                                  importDeclaration.getBegin().line,
-                                  importDeclaration.getBegin().column),
+                                  packageName, file.getPath(), begin.line, begin.column),
                               "")));
                 }
               }
@@ -129,7 +140,8 @@ public class CodelineFailureRule implements EnforcerRule {
     };
   }
 
-  private List<Validation<EnforcerRuleException, File>> checkPatterns(File srcDir, final List<String> patterns) throws IOException, EnforcerRuleException {
+  private List<Validation<EnforcerRuleException, File>> checkPatterns(
+      File srcDir, final List<String> patterns) throws IOException, EnforcerRuleException {
     return checkFiles(
         log,
         srcDir,
@@ -142,23 +154,39 @@ public class CodelineFailureRule implements EnforcerRule {
               for (String pattern : patterns) {
                 if (Pattern.compile(pattern).matcher(line).find()) {
                   StringBuilder sb = new StringBuilder();
-                  sb.append("Found pattern " + pattern + " at " + file.getPath() + ":" + reader.getLineNumber());
+                  sb.append(
+                      "Found pattern "
+                          + pattern
+                          + " at "
+                          + file.getPath()
+                          + ":"
+                          + reader.getLineNumber());
                   sb.append("\n");
                   sb.append(line);
-                  return List.of(invalid(new EnforcerRuleException(String.format("%s: %s", file.getPath(), sb.toString()))));
+                  return List.of(
+                      invalid(
+                          new EnforcerRuleException(
+                              String.format("%s: %s", file.getPath(), sb.toString()))));
                 }
               }
             }
             return List.of(valid(file));
           } catch (IOException e) {
             log.error(e.getMessage());
-            return List.of(invalid(new EnforcerRuleException(String.format("%s: %s", file.getPath(), e.getMessage()))));
+            return List.of(
+                invalid(
+                    new EnforcerRuleException(
+                        String.format("%s: %s", file.getPath(), e.getMessage()))));
           }
         });
   }
 
   public static List<Validation<EnforcerRuleException, File>> checkFiles(
-      Log log, File srcDir, String type, Function1<File, List<Validation<EnforcerRuleException, File>>> process) throws IOException, EnforcerRuleException {
+      Log log,
+      File srcDir,
+      String type,
+      Function1<File, List<Validation<EnforcerRuleException, File>>> process)
+      throws IOException, EnforcerRuleException {
     return checkFiles(List.empty(), log, srcDir, type, process);
   }
 
@@ -183,7 +211,8 @@ public class CodelineFailureRule implements EnforcerRule {
 
     for (File file : files) {
       if (file.isDirectory()) {
-        List<Validation<EnforcerRuleException, File>> result = checkFiles(validations, log, file, type, process);
+        List<Validation<EnforcerRuleException, File>> result =
+            checkFiles(validations, log, file, type, process);
         validations = validations.appendAll(result);
       } else {
         if (fileIsAcceptable.test(file)) {
@@ -219,7 +248,7 @@ public class CodelineFailureRule implements EnforcerRule {
   }
 
   static String fieldName(FieldDeclaration f) {
-    return f.getVariable(0).getId().toString();
+    return f.getVariable(0).getName().toString();
   }
 
   static String methodName(MethodDeclaration m) {
