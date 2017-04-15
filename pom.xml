@@ -4,7 +4,7 @@
 
   <groupId>com.theoryinpractise</groupId>
   <artifactId>codeline-enforcer-rule</artifactId>
-  <version>1.0.9-SNAPSHOT</version>
+  <version>1.0.9</version>
   <packaging>jar</packaging>
 
   <name>Codeline Enforcer</name>
@@ -32,7 +32,7 @@
   <scm>
     <developerConnection>scm:git:git@github.com:talios/codeline-enforcer-rule.git</developerConnection>
     <url>http://github.com/talios/codeline-enforcer-rule</url>
-    <tag>HEAD</tag>
+    <tag>codeline-enforcer-rule-1.0.9</tag>
   </scm>
   <distributionManagement>
     <repository>
