@@ -65,7 +65,7 @@ public class CheckUnusedPrivateFields {
                           List.narrow(
                               List.ofAll(def.getMethods()).filter(MethodDeclaration::isPrivate));
                       List<Node> allNodes =
-                          List.ofAll(def.getNodesByType(Node.class))
+                          List.ofAll(def.getChildNodesByType(Node.class))
                               .filter(
                                   node ->
                                       !(node instanceof MethodDeclaration

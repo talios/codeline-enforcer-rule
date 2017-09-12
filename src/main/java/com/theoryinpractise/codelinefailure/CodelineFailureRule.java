@@ -106,20 +106,18 @@ public class CodelineFailureRule implements EnforcerRule {
           try {
             CompilationUnit cu = JavaParser.parse(file);
 
-            if (cu.getImports() != null) {
-              for (ImportDeclaration importDeclaration : cu.getImports()) {
-                String packageName = importDeclaration.getChildNodes().get(0).toString();
-                if (classesPredicate.test(packageName)) {
-                  Position begin = importDeclaration.getBegin().orElse(Position.HOME);
-                  return List.of(
-                      invalid(
-                          new EnforcerRuleException(
-                              relativePathOfFile(file),
-                              String.format(
-                                  "Illegal class import - %s at %s:%d:%d is bad!",
-                                  packageName, file.getPath(), begin.line, begin.column),
-                              "")));
-                }
+            for (ImportDeclaration importDeclaration : cu.getImports()) {
+              String packageName = importDeclaration.getChildNodes().get(0).toString();
+              if (classesPredicate.test(packageName)) {
+                Position begin = importDeclaration.getBegin().orElse(Position.HOME);
+                return List.of(
+                    invalid(
+                        new EnforcerRuleException(
+                            relativePathOfFile(file),
+                            String.format(
+                                "Illegal class import - %s at %s:%d:%d is bad!",
+                                packageName, file.getPath(), begin.line, begin.column),
+                            "")));
               }
             }
             return List.of(valid(file));
