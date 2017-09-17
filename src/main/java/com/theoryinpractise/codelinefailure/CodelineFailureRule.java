@@ -7,9 +7,9 @@ import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
-import javaslang.Function1;
-import javaslang.collection.List;
-import javaslang.control.Validation;
+import io.vavr.Function1;
+import io.vavr.collection.List;
+import io.vavr.control.Validation;
 import org.apache.maven.enforcer.rule.api.EnforcerRule;
 import org.apache.maven.enforcer.rule.api.EnforcerRuleException;
 import org.apache.maven.enforcer.rule.api.EnforcerRuleHelper;
@@ -27,8 +27,8 @@ import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
 import static com.theoryinpractise.codelinefailure.CheckUnusedPrivateFields.checkUnusedPrivates;
-import static javaslang.control.Validation.invalid;
-import static javaslang.control.Validation.valid;
+import static io.vavr.control.Validation.invalid;
+import static io.vavr.control.Validation.valid;
 
 public class CodelineFailureRule implements EnforcerRule {
 
@@ -50,6 +50,7 @@ public class CodelineFailureRule implements EnforcerRule {
   private static Predicate<File> fileIsAcceptable =
       file -> !unacceptableFiles.testExact(file.getName());
 
+  @Override
   public void execute(EnforcerRuleHelper helper) throws EnforcerRuleException {
     log = helper.getLog();
 
@@ -223,14 +224,17 @@ public class CodelineFailureRule implements EnforcerRule {
     return validations;
   }
 
+  @Override
   public String getCacheId() {
     return null;
   }
 
+  @Override
   public boolean isCacheable() {
     return false;
   }
 
+  @Override
   public boolean isResultValid(EnforcerRule arg0) {
     return false;
   }

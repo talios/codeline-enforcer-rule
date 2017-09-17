@@ -16,8 +16,8 @@ import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.PrimitiveType;
-import javaslang.collection.List;
-import javaslang.control.Validation;
+import io.vavr.collection.List;
+import io.vavr.control.Validation;
 import org.apache.maven.enforcer.rule.api.EnforcerRuleException;
 import org.apache.maven.plugin.logging.Log;
 
@@ -30,8 +30,8 @@ import java.util.regex.Pattern;
 import static com.theoryinpractise.codelinefailure.CodelineFailureRule.checkFiles;
 import static com.theoryinpractise.codelinefailure.CodelineFailureRule.nodeName;
 import static com.theoryinpractise.codelinefailure.CodelineFailureRule.relativePathOfFile;
-import static javaslang.control.Validation.invalid;
-import static javaslang.control.Validation.valid;
+import static io.vavr.control.Validation.invalid;
+import static io.vavr.control.Validation.valid;
 
 public class CheckUnusedPrivateFields {
 
