@@ -9,7 +9,6 @@ import java.io.FileNotFoundException;
 import java.util.Optional;
 
 public class ParserSupport {
-
   public static Optional<CompilationUnit> parseCompilationUnit(String string) {
     return new JavaParser().parse(string).getResult();
   }
